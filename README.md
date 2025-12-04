@@ -16,7 +16,7 @@
 - ✅ Статистика выполнения
   
 
-Запуск
+### Запуск
 
 ### Способ 1: 
 
@@ -43,7 +43,7 @@ docker-compose up web
  Запуск тестов
 docker-compose up test
 
-# Тестирование
+### Тестирование
 
  Все тесты
 pytest tests/ -v
@@ -55,7 +55,7 @@ pytest --cov=core --cov=web tests/
 pytest tests/test_core.py -v
 
 
-# Docker команды
+### Docker команды
 
  Сборка образа
 docker build -t habit-tracker .
