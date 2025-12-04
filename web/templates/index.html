@@ -1,0 +1,528 @@
+{% extends "base.html" %}
+
+{% block title %}Главная - Habit Tracker{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <!-- Статистика -->
+    <div class="stats-bar" id="stats-bar">
+        <div class="stat-card">
+            <div class="stat-value" id="total-habits">0</div>
+            <div class="stat-label">Всего привычек</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="active-habits">0</div>
+            <div class="stat-label">Активных привычек</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="total-completions">0</div>
+            <div class="stat-label">Всего выполнений</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="avg-progress">0%</div>
+            <div class="stat-label">Средний прогресс</div>
+        </div>
+    </div>
+
+    <!-- Форма добавления привычки -->
+    <section class="add-habit-section">
+        <h2><i class="fas fa-plus-circle"></i> Добавить новую привычку</h2>
+        <form class="habit-form" onsubmit="event.preventDefault(); addHabit();">
+            <div class="form-group">
+                <label for="habit-name">Название привычки</label>
+                <input type="text" id="habit-name" placeholder="Например: Утренняя зарядка" required>
+            </div>
+            <div class="form-group">
+                <label for="habit-description">Описание (необязательно)</label>
+                <input type="text" id="habit-description" placeholder="Краткое описание привычки">
+            </div>
+            <div class="form-group">
+                <label for="habit-target">Цель (дней)</label>
+                <input type="number" id="habit-target" min="1" max="365" value="7">
+            </div>
+            <button type="submit" class="btn-primary">
+                <i class="fas fa-plus"></i> Добавить привычку
+            </button>
+        </form>
+    </section>
+
+    <!-- Список привычек -->
+    <section class="habits-section">
+        <div class="section-header">
+            <h2><i class="fas fa-list-check"></i> Мои привычки</h2>
+            <div class="section-actions">
+                <button class="btn-secondary" onclick="refreshHabits()">
+                    <i class="fas fa-sync-alt"></i> Обновить
+                </button>
+                <button class="btn-secondary" onclick="exportData()">
+                    <i class="fas fa-download"></i> Экспорт
+                </button>
+            </div>
+        </div>
+
+        <div class="loading" id="loading-habits">
+            <i class="fas fa-spinner fa-spin"></i> Загрузка привычек...
+        </div>
+
+        <div class="empty-state" id="empty-state" style="display: none;">
+            <i class="fas fa-inbox fa-3x"></i>
+            <h3>Пока нет привычек</h3>
+            <p>Добавьте свою первую привычку, используя форму выше.</p>
+        </div>
+
+        <div class="habits-grid" id="habits-grid">
+            <!-- Карточки привычек будут здесь -->
+        </div>
+    </section>
+
+    <!-- Графики -->
+    <section class="charts-section">
+        <h2><i class="fas fa-chart-line"></i> Визуализация прогресса</h2>
+        <div class="charts-container">
+            <div class="chart-container">
+                <canvas id="progressChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let habitsData = [];
+    let charts = {};
+
+    // Загрузка данных при старте
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadStats();
+        await loadHabits();
+    });
+
+    // Загрузка статистики
+    async function loadStats() {
+        try {
+            const response = await fetch('/api/stats');
+            const stats = await response.json();
+            
+            document.getElementById('total-habits').textContent = stats.total_habits;
+            document.getElementById('active-habits').textContent = stats.active_habits;
+            document.getElementById('total-completions').textContent = stats.total_completions;
+            document.getElementById('avg-progress').textContent = `${Math.round(stats.average_completion_rate * 100)}%`;
+        } catch (error) {
+            console.error('Ошибка загрузки статистики:', error);
+            showNotification('Не удалось загрузить статистику', 'error');
+        }
+    }
+
+    // Загрузка привычек
+    async function loadHabits() {
+        const loadingEl = document.getElementById('loading-habits');
+        const emptyStateEl = document.getElementById('empty-state');
+        const habitsGridEl = document.getElementById('habits-grid');
+        
+        try {
+            const response = await fetch('/api/habits');
+            habitsData = await response.json();
+            
+            loadingEl.style.display = 'none';
+            
+            if (habitsData.length === 0) {
+                emptyStateEl.style.display = 'block';
+                habitsGridEl.innerHTML = '';
+                renderCharts();
+                return;
+            }
+            
+            emptyStateEl.style.display = 'none';
+            renderHabits(habitsData);
+            renderCharts();
+            
+        } catch (error) {
+            console.error('Ошибка загрузки привычек:', error);
+            loadingEl.style.display = 'none';
+            showNotification('Не удалось загрузить привычки', 'error');
+        }
+    }
+
+    // Отрисовка привычек
+    function renderHabits(habits) {
+        const habitsGridEl = document.getElementById('habits-grid');
+        habitsGridEl.innerHTML = '';
+        
+        habits.forEach(habit => {
+            const completionRate = habit.completion_rate;
+            const progressPercent = Math.min(completionRate * 100, 100);
+            const streak = habit.streak || 0;
+            
+            const habitCard = document.createElement('div');
+            habitCard.className = 'habit-card';
+            habitCard.dataset.id = habit.id;
+            
+            habitCard.innerHTML = `
+                <div class="habit-header">
+                    <h3>${habit.name}</h3>
+                    <span class="habit-status">${habit.status === 'active' ? 'Активна' : 'Архив'}</span>
+                </div>
+                
+                ${habit.description ? `<p class="habit-description">${habit.description}</p>` : ''}
+                
+                <div class="progress-container">
+                    <div class="progress-info">
+                        <span>Прогресс: ${progressPercent.toFixed(1)}%</span>
+                        <span>${habit.completions.length}/${habit.target_days} дней</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                    </div>
+                </div>
+                
+                <div class="habit-stats">
+                    <span>
+                        <i class="fas fa-fire" style="color: ${streak > 0 ? '#e74c3c' : '#95a5a6'}"></i>
+                        Серия: ${streak} дней
+                    </span>
+                    <span>
+                        <i class="fas fa-calendar"></i>
+                        Создана: ${formatDate(habit.creation_date)}
+                    </span>
+                </div>
+                
+                <div class="habit-actions">
+                    <button class="btn-action btn-complete" onclick="completeHabit(${habit.id})">
+                        <i class="fas fa-check"></i> Выполнено
+                    </button>
+                    <button class="btn-action btn-stats" onclick="showHabitStats(${habit.id})">
+                        <i class="fas fa-chart-bar"></i> Статистика
+                    </button>
+                    <button class="btn-action btn-delete" onclick="deleteHabit(${habit.id})">
+                        <i class="fas fa-trash"></i> Удалить
+                    </button>
+                </div>
+            `;
+            
+            habitsGridEl.appendChild(habitCard);
+        });
+    }
+
+    // Добавление привычки
+    async function addHabit() {
+        const name = document.getElementById('habit-name').value.trim();
+        const description = document.getElementById('habit-description').value.trim();
+        const target = parseInt(document.getElementById('habit-target').value) || 7;
+        
+        if (!name) {
+            showNotification('Введите название привычки', 'error');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/habits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    description: description,
+                    target_days: target
+                })
+            });
+            
+            if (response.ok) {
+                showNotification('Привычка успешно добавлена', 'success');
+                
+                // Очищаем форму
+                document.getElementById('habit-name').value = '';
+                document.getElementById('habit-description').value = '';
+                document.getElementById('habit-target').value = '7';
+                
+                // Обновляем данные
+                await loadStats();
+                await loadHabits();
+            } else {
+                throw new Error('Ошибка при добавлении привычки');
+            }
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showNotification('Не удалось добавить привычку', 'error');
+        }
+    }
+
+    // Отметка выполнения
+    async function completeHabit(habitId) {
+        try {
+            const response = await fetch(`/api/habits/${habitId}/complete`, {
+                method: 'POST'
+            });
+            
+            const result = await response.json();
+            showNotification(result.message, 'success');
+            
+            await loadStats();
+            await loadHabits();
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showNotification('Не удалось отметить выполнение', 'error');
+        }
+    }
+
+    // Удаление привычки
+    async function deleteHabit(habitId) {
+        if (!confirm('Вы уверены, что хотите удалить эту привычку?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/habits/${habitId}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                showNotification('Привычка удалена', 'success');
+                await loadStats();
+                await loadHabits();
+            }
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showNotification('Не удалось удалить привычку', 'error');
+        }
+    }
+
+    // Показать статистику привычки
+    async function showHabitStats(habitId) {
+        try {
+            const response = await fetch(`/api/habits/${habitId}`);
+            const habit = await response.json();
+            
+            alert(`Статистика привычки "${habit.name}":\n\n` +
+                  `• Выполнено: ${habit.completions.length}/${habit.target_days} дней\n` +
+                  `• Прогресс: ${(habit.completion_rate * 100).toFixed(1)}%\n` +
+                  `• Текущая серия: ${habit.streak} дней\n` +
+                  `• Создана: ${formatDate(habit.creation_date)}\n` +
+                  `• Статус: ${habit.status === 'active' ? 'Активна' : 'Архив'}`);
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showNotification('Не удалось загрузить статистику', 'error');
+        }
+    }
+
+    // Экспорт данных
+    async function exportData() {
+        if (habitsData.length === 0) {
+            showNotification('Нет данных для экспорта', 'info');
+            return;
+        }
+        
+        const csvContent = [
+            ['Название', 'Описание', 'Цель', 'Выполнено', 'Прогресс%', 'Серия', 'Статус', 'Дата создания'],
+            ...habitsData.map(habit => [
+                habit.name,
+                habit.description || '',
+                habit.target_days,
+                habit.completions.length,
+                (habit.completion_rate * 100).toFixed(1),
+                habit.streak,
+                habit.status,
+                habit.creation_date
+            ])
+        ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `habits_export_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+        
+        showNotification('Данные экспортированы в CSV', 'success');
+    }
+
+    // Обновление привычек
+    async function refreshHabits() {
+        await loadStats();
+        await loadHabits();
+        showNotification('Данные обновлены', 'success');
+    }
+
+    // Отрисовка графиков
+    function renderCharts() {
+        if (habitsData.length === 0) {
+            return;
+        }
+        
+        // Уничтожаем старые графики
+        Object.values(charts).forEach(chart => chart.destroy());
+        charts = {};
+        
+        // График прогресса
+        const progressCtx = document.getElementById('progressChart').getContext('2d');
+        charts.progress = new Chart(progressCtx, {
+            type: 'bar',
+            data: {
+                labels: habitsData.map(h => h.name),
+                datasets: [{
+                    label: 'Процент выполнения',
+                    data: habitsData.map(h => Math.min(h.completion_rate * 100, 100)),
+                    backgroundColor: habitsData.map(h => 
+                        h.completion_rate >= 1 ? '#2ecc71' : 
+                        h.completion_rate >= 0.7 ? '#3498db' : 
+                        '#e74c3c'
+                    ),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Прогресс выполнения привычек'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        title: {
+                            display: true,
+                            text: 'Процент выполнения'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // График сравнения
+        const comparisonCtx = document.getElementById('comparisonChart').getContext('2d');
+        charts.comparison = new Chart(comparisonCtx, {
+            type: 'radar',
+            data: {
+                labels: habitsData.map(h => h.name),
+                datasets: [{
+                    label: 'Выполнено',
+                    data: habitsData.map(h => h.completions.length),
+                    backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                    borderColor: 'rgba(52, 152, 219, 1)',
+                    borderWidth: 2
+                }, {
+                    label: 'Цель',
+                    data: habitsData.map(h => h.target_days),
+                    backgroundColor: 'rgba(46, 204, 113, 0.2)',
+                    borderColor: 'rgba(46, 204, 113, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Сравнение выполнения с целями'
+                    }
+                },
+                scales: {
+                    r: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+</script>
+
+<style>
+    /* Дополнительные стили */
+    .navbar {
+        background: white;
+        padding: 15px 0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+    }
+    
+    .nav-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+    }
+    
+    .nav-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #2c3e50;
+    }
+    
+    .nav-links {
+        display: flex;
+        gap: 20px;
+    }
+    
+    .nav-link {
+        text-decoration: none;
+        color: #7f8c8d;
+        padding: 8px 15px;
+        border-radius: 5px;
+        transition: all 0.3s;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
+    .nav-link:hover,
+    .nav-link.active {
+        background: #3498db;
+        color: white;
+    }
+    
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .section-actions {
+        display: flex;
+        gap: 10px;
+    }
+    
+    .btn-secondary {
+        padding: 10px 20px;
+        background: #95a5a6;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background 0.3s;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
+    .btn-secondary:hover {
+        background: #7f8c8d;
+    }
+    
+    .charts-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+        gap: 20px;
+    }
+    
+    @media (max-width: 768px) {
+        .charts-container {
+            grid-template-columns: 1fr;
+        }
+        
+        .nav-links {
+            flex-direction: column;
+            gap: 10px;
+        }
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: habit-tracker-web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///data/habits.db
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: python run.py --mode web
+
+  # Опционально: PostgreSQL версия
+  postgres:
+    image: postgres:15-alpine
+    container_name: habit-tracker-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: habit_user
+      POSTGRES_PASSWORD: habit_password
+      POSTGRES_DB: habit_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web-pg:
+    build: .
+    container_name: habit-tracker-web-pg
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://habit_user:habit_password@postgres:5432/habit_tracker
+      - LOG_LEVEL=INFO
+    depends_on:
+      - postgres
+    volumes:
+      - ./logs:/app/logs
+    command: python run.py --mode web
+
+  test:
+    build: .
+    container_name: habit-tracker-test
+    restart: "no"
+    environment:
+      - DATABASE_URL=sqlite:///test.db
+    volumes:
+      - ./tests:/app/tests
+    command: pytest tests/ -v
+
+volumes:
+  postgres_data:
