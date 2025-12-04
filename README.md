@@ -20,54 +20,54 @@
 
 ### Способ 1: 
 
-# Клонирование и установка
+ Клонирование и установка
 git clone <репозиторий>
 cd python_lab_3
 
-# Установка зависимостей
+ Установка зависимостей
 pip install -r requirements.txt
 
-# Запуск веб-сервера
+ Запуск веб-сервера
 python run.py --mode web
 
-# Или десктопного приложения
+ Или десктопного приложения
 python run.py --mode desktop
 
-# Или оба режима
+ Или оба режима
 python run.py --mode both
 
-Способ 2: Через Docker
+### Способ 2: Через Docker
 
 docker-compose up web
 
-# Запуск тестов
+ Запуск тестов
 docker-compose up test
 
-Тестирование
+# Тестирование
 
-# Все тесты
+ Все тесты
 pytest tests/ -v
 
-# С покрытием кода
+ С покрытием кода
 pytest --cov=core --cov=web tests/
 
-# Конкретный тестовый файл
+ Конкретный тестовый файл
 pytest tests/test_core.py -v
 
 
-Docker команды
+# Docker команды
 
-# Сборка образа
+ Сборка образа
 docker build -t habit-tracker .
 
-# Запуск контейнера
+ Запуск контейнера
 docker run -p 8000:8000 habit-tracker
 
-# Просмотр логов
+ Просмотр логов
 docker-compose logs -f web
 
-# Остановка всех сервисов
+ Остановка всех сервисов
 docker-compose down
 
-# Пересборка и запуск
+ Пересборка и запуск
 docker-compose up --build
